@@ -94,3 +94,10 @@ class OrchestrationResult(BaseModel):
     timings: dict[str, float] = Field(default_factory=dict)
     started_at: datetime
     finished_at: datetime
+
+
+class GenerateFromPromptRequest(BaseModel):
+    prompt: str = Field(min_length=1)
+    target: Literal["web_site", "web_app", "api", "full_stack"] = "web_site"
+    style: str | None = None
+    features: list[str] = Field(default_factory=list)

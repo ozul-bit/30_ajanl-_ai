@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from app.orchestrator import PaymentModuleOrchestrator
+from app.models import GenerateFromPromptRequest
 
 app = FastAPI(title="30 Bağımsız AI Ajan Orkestrasyonu", version="0.1.0")
 orchestrator = PaymentModuleOrchestrator()
@@ -26,4 +27,15 @@ async def agents() -> list[dict[str, str]]:
 @app.post("/orchestrate/payment-module")
 async def orchestrate_payment_module(request: PaymentModuleRequest) -> dict:
     result = await orchestrator.orchestrate_payment_module(request.objective)
+    return result.model_dump(mode="json")
+
+
+@app.post("/generate/from-prompt")
+async def generate_from_prompt(request: GenerateFromPromptRequest) -> dict:
+    result = await orchestrator.generate_from_prompt(
+        prompt=request.prompt,
+        target=request.target,
+        style=request.style,
+        features=request.features,
+    )
     return result.model_dump(mode="json")
