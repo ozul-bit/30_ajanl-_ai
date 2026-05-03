@@ -25,6 +25,20 @@ flowchart TD
 ```
 """
 
+PROMPT_TO_APP_FLOW_DIAGRAM = """```mermaid
+flowchart TD
+    U[Kullanıcı prompt'u + target] --> P[Postman / Dispatcher]
+    P --> W1[Dalga 1: ürün gereksinimi, bilgi mimarisi, teknik yön]
+    W1 --> P
+    P --> W2[Dalga 2: frontend, UX, API, backend, veri, güvenlik, entegrasyon]
+    W2 --> P
+    P --> W3[Dalga 3: QA, performans, DevOps, SRE, docs, release, accessibility, localization, risk, finops]
+    W3 --> P
+    P --> F[agent_30_final_integrator]
+    F --> M[Structured project blueprint: spec, IA, UI, code plans, generated files, tests, deployment, risks]
+```
+"""
+
 PROVIDER_ROTATION = [
     ("openai", "gpt-4.1"),
     ("anthropic", "claude-3-5-sonnet"),
@@ -83,6 +97,22 @@ SECTION_KEYS = [
     "tests",
     "deployment",
     "docs",
+    "risk_register",
+]
+
+APP_SECTION_KEYS = [
+    "product_spec",
+    "information_architecture",
+    "ui_design",
+    "frontend_code_plan",
+    "backend_code_plan",
+    "data_model",
+    "api_contract",
+    "security_privacy",
+    "test_plan",
+    "deployment_plan",
+    "generated_files",
+    "implementation_steps",
     "risk_register",
 ]
 
@@ -164,6 +194,70 @@ class PaymentModuleOrchestrator:
             finished_at=datetime.now(timezone.utc),
         )
 
+    async def generate_from_prompt(
+        self,
+        prompt: str,
+        target: str = "web_site",
+        style: str | None = None,
+        features: list[str] | None = None,
+    ) -> OrchestrationResult:
+        self.dispatcher.reset()
+        started = datetime.now(timezone.utc)
+        start_perf = time.perf_counter()
+        correlation_id = str(uuid4())
+        all_outputs: list[AgentOutput] = []
+        requested_features = features or []
+        objective = f"Prompt-to-{target} generation blueprint"
+        base_context = {
+            "generation_mode": "prompt_to_app",
+            "prompt": prompt,
+            "target": target,
+            "style": style,
+            "features": requested_features,
+            "routing_note": "Only anonymized prompt facts and role-focused summaries are sent to agents.",
+        }
+        for wave_index, wave in enumerate(WAVES, start=1):
+            tasks = []
+            for agent_id in wave:
+                agent = self.agents[agent_id]
+                if agent.role == "final_integration":
+                    context = {
+                        "generation_mode": "prompt_to_app",
+                        "target": target,
+                        "style": style,
+                        "features": requested_features,
+                        "postman_previous_summaries": self.dispatcher.package_from_outputs(all_outputs, APP_SECTION_KEYS),
+                    }
+                elif wave_index == 1:
+                    context = {"wave": wave_index, "base": base_context, "role_focus": agent.role}
+                else:
+                    context = {
+                        "generation_mode": "prompt_to_app",
+                        "wave": wave_index,
+                        "target": target,
+                        "style": style,
+                        "features": requested_features,
+                        "role_focus": agent.role,
+                        "postman_previous_summaries": self.dispatcher.package_from_outputs(all_outputs, self._app_sections_for_role(agent.role)),
+                    }
+                tasks.append(self.dispatcher.dispatch(agent, correlation_id, objective, context))
+            wave_outputs = await asyncio.gather(*tasks)
+            all_outputs.extend(wave_outputs)
+        merged = self._merge_outputs(all_outputs, APP_SECTION_KEYS)
+        status = "completed" if any(output.status == AgentStatus.succeeded for output in all_outputs) else "failed"
+        return OrchestrationResult(
+            correlation_id=correlation_id,
+            status=status,
+            objective=objective,
+            agent_outputs=all_outputs,
+            event_log=self.dispatcher.event_log,
+            merged_result=merged,
+            flow_diagram=PROMPT_TO_APP_FLOW_DIAGRAM,
+            timings={"duration_seconds": round(time.perf_counter() - start_perf, 4)},
+            started_at=started,
+            finished_at=datetime.now(timezone.utc),
+        )
+
     def _sections_for_role(self, role: str) -> list[str]:
         mapping = {
             "database": ["requirements", "architecture"],
@@ -179,21 +273,74 @@ class PaymentModuleOrchestrator:
         }
         return mapping.get(role, SECTION_KEYS[:4])
 
-    def _merge_outputs(self, outputs: list[AgentOutput]) -> dict[str, list[dict[str, object]]]:
-        merged: dict[str, list[dict[str, object]]] = {key: [] for key in SECTION_KEYS}
+    def _app_sections_for_role(self, role: str) -> list[str]:
+        mapping = {
+            "requirements": ["product_spec", "information_architecture"],
+            "product_scope": ["product_spec", "information_architecture"],
+            "architecture": ["product_spec", "backend_code_plan", "frontend_code_plan", "api_contract"],
+            "domain_model": ["product_spec", "data_model"],
+            "database": ["product_spec", "data_model", "backend_code_plan"],
+            "api_contract": ["product_spec", "api_contract", "backend_code_plan"],
+            "backend": ["product_spec", "api_contract", "backend_code_plan", "data_model"],
+            "payment_integration": ["product_spec", "api_contract", "backend_code_plan"],
+            "security": ["product_spec", "api_contract", "backend_code_plan", "security_privacy"],
+            "compliance": ["product_spec", "security_privacy"],
+            "frontend": ["product_spec", "information_architecture", "ui_design", "frontend_code_plan"],
+            "ux": ["product_spec", "information_architecture", "ui_design"],
+            "mobile": ["product_spec", "ui_design", "frontend_code_plan"],
+            "privacy": ["product_spec", "security_privacy", "data_model"],
+            "integration": ["api_contract", "backend_code_plan", "deployment_plan"],
+            "qa": ["product_spec", "frontend_code_plan", "backend_code_plan", "test_plan"],
+            "test_automation": ["product_spec", "test_plan", "generated_files"],
+            "performance": ["frontend_code_plan", "backend_code_plan", "test_plan", "deployment_plan"],
+            "deployment": ["backend_code_plan", "frontend_code_plan", "deployment_plan"],
+            "reliability": ["deployment_plan", "test_plan"],
+            "observability": ["deployment_plan", "backend_code_plan"],
+            "documentation": APP_SECTION_KEYS,
+            "release": ["deployment_plan", "implementation_steps", "risk_register"],
+            "risk_register": APP_SECTION_KEYS,
+        }
+        return mapping.get(role, APP_SECTION_KEYS[:4])
+
+    def _merge_outputs(self, outputs: list[AgentOutput], section_keys: list[str] | None = None) -> dict[str, list[dict[str, object]]]:
+        keys = section_keys or SECTION_KEYS
+        merged: dict[str, list[dict[str, object]]] = {key: [] for key in keys}
         failed: list[dict[str, object]] = []
         for output in outputs:
             if output.status != AgentStatus.succeeded:
                 failed.append({"agent_id": output.agent_id, "role": output.role, "errors": output.errors})
                 continue
             section = output.data.get("section")
-            target = section if section in merged else self._fallback_section(output.role)
+            target = section if section in merged else self._fallback_section(output.role, keys)
             if target in merged:
                 merged[target].append({"agent_id": output.agent_id, "role": output.role, "summary": output.summary, "data": output.data})
         merged["risk_register"].extend(failed)
         return merged
 
-    def _fallback_section(self, role: str) -> str:
+    def _fallback_section(self, role: str, section_keys: list[str] | None = None) -> str:
+        keys = section_keys or SECTION_KEYS
+        if keys == APP_SECTION_KEYS:
+            if role in {"requirements", "product_scope", "domain_model"}:
+                return "product_spec"
+            if role in {"architecture", "integration"}:
+                return "implementation_steps"
+            if role in {"database"}:
+                return "data_model"
+            if role in {"api_contract"}:
+                return "api_contract"
+            if role in {"backend", "payment_integration", "refactoring"}:
+                return "backend_code_plan"
+            if role in {"security", "privacy", "compliance"}:
+                return "security_privacy"
+            if role in {"frontend", "ux", "mobile", "localization", "accessibility"}:
+                return "ui_design"
+            if role in {"qa", "test_automation", "performance", "code_review"}:
+                return "test_plan"
+            if role in {"deployment", "reliability", "observability", "release", "cost_controls"}:
+                return "deployment_plan"
+            if role in {"documentation", "final_integration"}:
+                return "implementation_steps"
+            return "risk_register"
         if role in {"requirements", "product_scope"}:
             return "requirements"
         if role in {"architecture", "domain_model", "integration"}:

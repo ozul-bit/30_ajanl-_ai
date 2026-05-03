@@ -27,6 +27,7 @@ app/
   prompts.py        # Tam olarak 30 bağımsızlık prompt'u
   sandbox.py        # Temp sandbox yönetimi
 examples/
+  generate_from_prompt.py
   payment_module_simulation.py
 pyproject.toml
 ```
@@ -88,6 +89,80 @@ requirements, architecture, db_schema, api_contract, security,
 backend, frontend, tests, deployment, docs, risk_register
 ```
 
+## Prompt'tan uygulama / web sitesi üretimi
+
+Yeni `POST /generate/from-prompt` endpoint'i kullanıcı prompt'unu ve hedef tipini alır; aynı 30 bağımsız ajanı kullanarak web sitesi, web app, API veya full-stack uygulama için yapılandırılmış proje blueprint'i üretir. Gerçek dosyalar ana repoya yazılmaz; ajanlar sadece sandbox artifact'i ve JSON içindeki `generated_files` plan/snippet çıktısını üretir.
+
+```mermaid
+flowchart TD
+    U[Kullanıcı prompt'u + target] --> P[Postman / Dispatcher]
+    P --> W1[Dalga 1: ürün gereksinimi, bilgi mimarisi, teknik yön]
+    W1 --> P
+    P --> W2[Dalga 2: frontend, UX, API, backend, veri, güvenlik, entegrasyon]
+    W2 --> P
+    P --> W3[Dalga 3: QA, performans, DevOps, SRE, docs, release, accessibility, localization, risk, finops]
+    W3 --> P
+    P --> F[agent_30_final_integrator]
+    F --> M[Structured project blueprint: spec, IA, UI, code plans, generated files, tests, deployment, risks]
+```
+
+İstek modeli:
+
+```json
+{
+  "prompt": "Modern, mobil uyumlu bir restoran tanıtım web sitesi oluştur; menü, rezervasyon formu ve iletişim bölümü olsun.",
+  "target": "web_site",
+  "style": "modern ve sıcak",
+  "features": ["menü", "rezervasyon formu", "iletişim bölümü"]
+}
+```
+
+Desteklenen `target` değerleri:
+
+- `web_site`: statik/marketing web sitesi; backend/veritabanı ajanları "gerekli değil veya opsiyonel" plan döndürür.
+- `web_app`: etkileşimli frontend ve opsiyonel API planı.
+- `api`: backend/API odaklı servis planı.
+- `full_stack`: frontend, API, backend, veri modeli ve deployment planı.
+
+Örnek çağrı:
+
+```bash
+curl -X POST http://127.0.0.1:8000/generate/from-prompt \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "prompt":"Modern, mobil uyumlu bir restoran tanıtım web sitesi oluştur; menü, rezervasyon formu ve iletişim bölümü olsun.",
+    "target":"web_site",
+    "style":"modern ve sıcak",
+    "features":["menü","rezervasyon formu","iletişim bölümü"]
+  }'
+```
+
+Yanıt yine `OrchestrationResult` formatındadır: `agent_outputs`, `event_log`, `flow_diagram`, `timings` ve `merged_result` içerir. Prompt üretimindeki `merged_result` şu bölümleri garanti eder:
+
+```text
+product_spec, information_architecture, ui_design, frontend_code_plan,
+backend_code_plan, data_model, api_contract, security_privacy, test_plan,
+deployment_plan, generated_files, implementation_steps, risk_register
+```
+
+Örnek `generated_files` parçası:
+
+```json
+{
+  "path": "index.html",
+  "purpose": "Statik açılış sayfası iskeleti",
+  "snippet": "<main><section class=\"hero\"><h1>Modern mobil uyumlu bir restoran tanıtım</h1></section></main>"
+}
+```
+
+Bağımsızlık kuralları bu akışta da aynıdır:
+
+- **Execution Independence:** 30 ajanın her biri ayrı subprocess ve ayrı sandbox içinde çalışır.
+- **Contextual Independence:** Dispatcher prompt'u ve önceki sonuçları anonimleştirilmiş, rol odaklı minimal JSON paketlerine daraltır; ajanlar ham global context veya ana repo dosyalarını görmez.
+- **Infrastructure Independence:** Her ajan kendi `ProviderConfig` sağlayıcı/model/env-var sözleşmesiyle çalışır.
+- **Zero-Shared State:** Ajanlar birbirine yazmaz, ortak bellek kullanmaz; sadece Postman'ın verdiği paketleri ve immutable özetleri görür.
+- **Contained Failure:** Bir ajan hata verirse sadece kendi `AgentOutput` kaydı başarısız olur; diğer ajanlar çalışmaya devam eder ve hata final `risk_register` bölümüne eklenir.
+
 ## API çalıştırma
 
 ```bash
@@ -102,6 +177,7 @@ Endpointler:
 - `GET /health`
 - `GET /agents`
 - `POST /orchestrate/payment-module`
+- `POST /generate/from-prompt`
 
 Örnek istek:
 
@@ -115,6 +191,7 @@ curl -X POST http://127.0.0.1:8000/orchestrate/payment-module \
 
 ```bash
 python examples/payment_module_simulation.py
+python examples/generate_from_prompt.py
 ```
 
 Bu komut flow diagram'ı, birleştirilmiş sonucu ve toplam ajan/event sayısını yazdırır. Gerçek LLM çağrısı yapılmaz; `agent_worker.py` deterministik provider simülasyonu üretir. Gerçek provider entegrasyonu için `IndependentAgent.run()` içindeki subprocess worker aynı kalabilir, sadece worker içinde ilgili provider SDK çağrısı eklenir.
