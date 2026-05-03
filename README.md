@@ -163,14 +163,103 @@ Bağımsızlık kuralları bu akışta da aynıdır:
 - **Zero-Shared State:** Ajanlar birbirine yazmaz, ortak bellek kullanmaz; sadece Postman'ın verdiği paketleri ve immutable özetleri görür.
 - **Contained Failure:** Bir ajan hata verirse sadece kendi `AgentOutput` kaydı başarısız olur; diğer ajanlar çalışmaya devam eder ve hata final `risk_register` bölümüne eklenir.
 
-## API çalıştırma
+## Adım adım çalıştırma
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
-uvicorn app.main:app --reload
-```
+Bu proje lokal geliştirmede gerçek API key istemez. Mevcut worker deterministik/simüle çalışır; gerçek LLM/provider çağrısı yapılmaz. İleride gerçek provider entegrasyonu eklenirse gerekli ortam değişkeni adları `GET /agents` çıktısında görünen `AGENT_XX_*_API_KEY` formatını takip eder.
+
+1. Repoyu klonlayın ve proje klasörüne girin:
+
+   ```bash
+   git clone <repo-url>
+   cd 30_ajanl-_ai
+   ```
+
+   Repo zaten bilgisayarınızdaysa sadece klasöre girmeniz yeterlidir:
+
+   ```bash
+   cd /path/to/30_ajanl-_ai
+   ```
+
+2. Python sürümünü kontrol edin. Python 3.11 veya üzeri gerekir:
+
+   ```bash
+   python --version
+   ```
+
+3. Sanal ortam oluşturun ve aktif edin:
+
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   ```
+
+   Windows PowerShell için aktivasyon komutu:
+
+   ```powershell
+   .venv\Scripts\Activate.ps1
+   ```
+
+4. Bağımlılıkları yükleyin:
+
+   ```bash
+   pip install -e .
+   ```
+
+5. İsteğe bağlı olarak lokal import/simülasyon kontrollerini çalıştırın:
+
+   ```bash
+   python examples/payment_module_simulation.py
+   python examples/generate_from_prompt.py
+   ```
+
+   Bu komutlar flow diagram'ı, birleştirilmiş sonucu ve toplam ajan/event sayısını yazdırır.
+
+6. FastAPI sunucusunu başlatın:
+
+   ```bash
+   uvicorn app.main:app --reload
+   ```
+
+7. Sağlık kontrolü endpoint'ini doğrulayın:
+
+   ```bash
+   curl http://127.0.0.1:8000/health
+   ```
+
+8. Kayıtlı ajanları listeleyin:
+
+   ```bash
+   curl http://127.0.0.1:8000/agents
+   ```
+
+9. Payment orchestration endpoint'ini çalıştırın:
+
+   ```bash
+   curl -X POST http://127.0.0.1:8000/orchestrate/payment-module \
+     -H 'Content-Type: application/json' \
+     -d '{"objective":"Complex E-commerce Payment Module"}'
+   ```
+
+10. Prompt'tan web sitesi/uygulama üretim endpoint'ini çalıştırın:
+
+    ```bash
+    curl -X POST http://127.0.0.1:8000/generate/from-prompt \
+      -H 'Content-Type: application/json' \
+      -d '{
+        "prompt":"Modern, mobil uyumlu bir restoran tanıtım web sitesi oluştur; menü, rezervasyon formu ve iletişim bölümü olsun.",
+        "target":"web_site",
+        "style":"modern ve sıcak",
+        "features":["menü","rezervasyon formu","iletişim bölümü"]
+      }'
+    ```
+
+11. Swagger UI'ı tarayıcıda açın:
+
+    ```text
+    http://127.0.0.1:8000/docs
+    ```
+
+12. Sunucuyu durdurmak için terminalde `Ctrl+C` kullanın.
 
 Endpointler:
 
@@ -179,22 +268,12 @@ Endpointler:
 - `POST /orchestrate/payment-module`
 - `POST /generate/from-prompt`
 
-Örnek istek:
+### Sorun giderme
 
-```bash
-curl -X POST http://127.0.0.1:8000/orchestrate/payment-module \
-  -H 'Content-Type: application/json' \
-  -d '{"objective":"Complex E-commerce Payment Module"}'
-```
-
-## Simülasyon çalıştırma
-
-```bash
-python examples/payment_module_simulation.py
-python examples/generate_from_prompt.py
-```
-
-Bu komut flow diagram'ı, birleştirilmiş sonucu ve toplam ajan/event sayısını yazdırır. Gerçek LLM çağrısı yapılmaz; `agent_worker.py` deterministik provider simülasyonu üretir. Gerçek provider entegrasyonu için `IndependentAgent.run()` içindeki subprocess worker aynı kalabilir, sadece worker içinde ilgili provider SDK çağrısı eklenir.
+- `uvicorn: command not found`: Sanal ortam aktifken `pip install -e .` komutunu tekrar çalıştırın veya `python -m uvicorn app.main:app --reload` kullanın.
+- Python sürümü 3.11'den düşükse Python 3.11+ kurun ve sanal ortamı bu sürümle yeniden oluşturun.
+- `8000` portu doluysa sunucuyu farklı portla başlatın: `uvicorn app.main:app --reload --port 8001`.
+- Modül import hatalarında komutları repo kök dizininden çalıştırdığınızdan ve sanal ortamın aktif olduğundan emin olun.
 
 ## Hata izolasyonu ve retry
 
